@@ -56,6 +56,7 @@
 
   .grid-form { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
   .grid-form .wide { grid-column: span 2; }
+  .grid-form .triple { grid-column: span 3; }
   .grid-form .full { grid-column: 1 / -1; }
   label { display: block; font-size: .88rem; color: var(--muted); margin-bottom: 4px; font-weight: 600; }
   label .req { color: var(--warn); }
@@ -144,7 +145,7 @@
   nav.tabs button:hover { background: rgba(255, 255, 255, .12); opacity: 1; }
   nav.tabs button.active { background: var(--bg); color: var(--accent-ink); opacity: 1; }
   .tab-panel { display: grid; gap: 16px; }
-  main > *, .tab-panel > *, .stats-grid > * { min-width: 0; }   /* 차트가 화면 밖으로 넘치지 않게 */
+  main > *, .tab-panel > *, .stats-grid > * { min-width: 0; }
   .tab-panel[hidden] { display: none; }
 
   /* 통계 */
@@ -163,7 +164,7 @@
     .stats-grid { grid-template-columns: 1fr; }
     nav.tabs button { flex: 1; }
     .grid-form { grid-template-columns: 1fr 1fr; }
-    .grid-form .wide { grid-column: 1 / -1; }
+    .grid-form .wide, .grid-form .triple { grid-column: 1 / -1; }
     .search { grid-template-columns: 1fr 1fr; }
     .search .grow { grid-column: 1 / -1; }
     .item { grid-template-columns: 1fr auto; }
@@ -193,7 +194,7 @@
 
 <main>
   <div id="setup" class="setup" hidden>
-    index.html 맨 아래 &lt;script&gt;의 SUPABASE_URL, SUPABASE_KEY 값을 내 프로젝트 값으로 바꿔 주세요.
+    index.html 맨 아래 <script>의 SUPABASE_URL, SUPABASE_KEY 값을 내 프로젝트 값으로 바꿔 주세요.
     (Supabase › Project Settings › API Keys 에서 Project URL과 publishable key를 복사)
   </div>
 
@@ -267,9 +268,13 @@
         <label for="f-class">반</label>
         <input type="number" id="f-class" min="1" max="15" placeholder="예: 2">
       </div>
-      <div class="full">
+      <div class="triple">
         <label for="f-purpose">사용 목적</label>
         <input type="text" id="f-purpose" maxlength="100" placeholder="예: 식물 관찰 실험">
+      </div>
+      <div>
+        <label for="f-pin">취소용 PIN 4자리 <span class="req">*</span></label>
+        <input type="password" id="f-pin" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" placeholder="숫자 4자리" required>
       </div>
       <div class="full actions">
         <button type="submit" class="primary" id="f-submit">예약하기</button>
@@ -337,9 +342,9 @@ const SUPABASE_KEY = 'sb_publishable_twX2rYqRN6lxFQor15TqEQ_D1GoRmh8';
 // =====================================================================
 const PERIODS = [1, 2, 3, 4, 5, 6];
 const DAY_NAMES = ['일', '월', '화', '수', '목', '금', '토'];
-let db = null;              // Supabase 클라이언트 (콘솔에서도 db.from(...) 으로 사용 가능)
-let rooms = [];             // 특별실 목록
-let weekStart = mondayOf(new Date());   // 시간표에 보이는 주의 월요일
+let db = null;
+let rooms = [];
+let weekStart = mondayOf(new Date());
 
 const $ = (id) => document.getElementById(id);
 
@@ -358,7 +363,7 @@ function niceDate(s) { const d = parse(s); return `${d.getMonth() + 1}월 ${d.ge
 
 // ---------- 화면 도우미 ----------
 function esc(s) {
-  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  return String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&', '<': '<', '>': '>', '"': '"', "'": ''' }[c]));
 }
 let toastTimer;
 function toast(msg, type = '') {
@@ -370,7 +375,7 @@ function toast(msg, type = '') {
 }
 function errMsg(e) {
   if (e.code === '23505') return '이미 예약된 시간입니다. 다른 교시나 날짜를 골라 주세요.';
-  if (e.code === '23514') return '입력값이 허용 범위를 벗어났습니다. (교시·학년·반·글자 수 확인)';
+  if (e.code === '23514') return '입력값이 허용 범위를 벗어났습니다. (교시·학년·반·PIN 4자리 확인)';
   if (e.code === '23503') return '존재하지 않는 특별실입니다. 새로고침 후 다시 시도해 주세요.';
   if (e.code === '42501') return '권한이 없습니다. Supabase의 RLS 정책을 확인해 주세요.';
   return '오류가 발생했습니다: ' + (e.message || e);
@@ -400,6 +405,7 @@ async function submitReservation(ev) {
   const teacher = $('f-teacher').value.trim();
   const classNo = $('f-class').value;
   const purpose = $('f-purpose').value.trim();
+  const pin = $('f-pin').value.trim();
 
   if (!date) return toast('날짜를 선택해 주세요.', 'error');
   const dow = parse(date).getDay();
@@ -407,6 +413,7 @@ async function submitReservation(ev) {
   if (date < todayStr()) return toast('지난 날짜는 예약할 수 없습니다.', 'error');
   if (!teacher) return toast('교사 이름을 입력해 주세요.', 'error');
   if (classNo && (classNo < 1 || classNo > 15)) return toast('반은 1~15 사이로 입력해 주세요.', 'error');
+  if (!/^\d{4}$/.test(pin)) return toast('취소용 PIN 번호는 숫자 4자리로 입력해 주세요.', 'error');
 
   const row = {
     room_id: Number($('f-room').value),
@@ -416,6 +423,7 @@ async function submitReservation(ev) {
     grade: Number($('f-grade').value),
     class_no: classNo ? Number(classNo) : null,
     purpose: purpose || null,
+    pin,
   };
 
   const btn = $('f-submit');
@@ -423,7 +431,6 @@ async function submitReservation(ev) {
   const { error } = await db.from('reservations').insert(row);
   btn.disabled = false; btn.textContent = '예약하기';
 
-  // 보고 있는 시간표를 방금 예약한 특별실·주로 맞춤
   $('w-room').value = row.room_id;
   weekStart = mondayOf(parse(date));
 
@@ -432,8 +439,9 @@ async function submitReservation(ev) {
   } else {
     toast(`${niceDate(date)} ${row.period}교시 ${roomName(row.room_id)} 예약 완료!`, 'ok');
     $('f-purpose').value = '';
+    $('f-pin').value = '';
   }
-  await Promise.all([renderWeek(), loadList(), renderStats()]);   // 성공·실패 모두 최신 상태로 새로 고침 (차트 포함)
+  await Promise.all([renderWeek(), loadList(), renderStats()]);
 }
 
 // =====================================================================
@@ -483,7 +491,6 @@ async function renderWeek() {
   }).join('');
 }
 
-// 빈칸 클릭 → 예약 등록 칸 채우기
 function onSlotClick(ev) {
   const td = ev.target.closest('td.slot');
   if (!td || td.classList.contains('booked') || td.classList.contains('past')) return;
@@ -533,23 +540,33 @@ async function loadList() {
 }
 
 // =====================================================================
-// 4. 취소
+// 4. 취소 (PIN 4자리 검증 후 RPC 삭제)
 // =====================================================================
 async function onCancelClick(ev) {
   const btn = ev.target.closest('button[data-id]');
   if (!btn) return;
-  if (!confirm(`${btn.dataset.label} 예약을 취소할까요?\n취소하면 되돌릴 수 없습니다.`)) return;
+
+  const inputPin = prompt(`${btn.dataset.label} 예약을 취소합니다.\n예약 시 입력한 PIN 번호 4자리를 입력하세요.`);
+  if (inputPin === null) return; // 취소 버튼 클릭
+  if (!/^\d{4}$/.test(inputPin.trim())) {
+    return toast('PIN 번호는 숫자 4자리로 입력해 주세요.', 'error');
+  }
 
   btn.disabled = true;
-  const { data, error } = await db.from('reservations').delete().eq('id', Number(btn.dataset.id)).select('id');
+  const { data: isDeleted, error } = await db.rpc('cancel_reservation_with_pin', {
+    target_id: Number(btn.dataset.id),
+    input_pin: inputPin.trim(),
+  });
+  btn.disabled = false;
+
   if (error) {
     toast(errMsg(error), 'error');
-  } else if (!data.length) {
-    toast('이미 취소되었거나 삭제 권한이 없습니다.', 'error');
+  } else if (!isDeleted) {
+    toast('PIN 번호가 일치하지 않거나 이미 취소된 예약입니다.', 'error');
   } else {
     toast('예약을 취소했습니다.', 'ok');
+    await Promise.all([renderWeek(), loadList(), renderStats()]);
   }
-  await Promise.all([renderWeek(), loadList(), renderStats()]);
 }
 
 // =====================================================================
@@ -557,10 +574,9 @@ async function onCancelClick(ev) {
 // =====================================================================
 const ACCENT = '#2f7d5b';
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금'];
-let statsRange = 'week';    // 'week' = 이번 주, 'month' = 이번 달
-const charts = {};          // 그려 둔 차트 (다시 그릴 때 이전 차트를 지우기 위해 보관)
+let statsRange = 'week';
+const charts = {};
 
-// 기간의 시작일·마지막일
 function rangeOf(kind) {
   const now = new Date();
   if (kind === 'month') {
@@ -570,7 +586,6 @@ function rangeOf(kind) {
   return { from: mon, to: addDays(mon, 4) };
 }
 
-// 기간 안의 평일 수
 function countWeekdays(from, to) {
   let n = 0;
   for (let d = new Date(from); d <= to; d = addDays(d, 1)) {
@@ -580,14 +595,13 @@ function countWeekdays(from, to) {
   return n;
 }
 
-// 차트를 새로 그리기 (같은 자리에 있던 차트는 먼저 지움)
 function drawChart(id, config) {
   if (charts[id]) charts[id].destroy();
   charts[id] = new Chart($(id), config);
 }
 
 async function renderStats() {
-  if (!db || $('tab-stats').hidden) return;   // 통계 탭이 보일 때만 그림
+  if (!db || $('tab-stats').hidden) return;
   const { from, to } = rangeOf(statsRange);
 
   const { data, error } = await db.from('reservations')
@@ -597,13 +611,13 @@ async function renderStats() {
   if (error) { toast(errMsg(error), 'error'); return; }
 
   const weekdays = countWeekdays(from, to);
-  const slots = weekdays * PERIODS.length;     // 특별실 하나가 기간 동안 예약될 수 있는 칸 수
+  const slots = weekdays * PERIODS.length;
   $('st-summary').innerHTML =
     `기간 <strong>${from.getMonth() + 1}/${from.getDate()} ~ ${to.getMonth() + 1}/${to.getDate()}</strong>` +
     ` · 평일 <strong>${weekdays}일</strong> · 특별실당 <strong>${slots}칸</strong>` +
     ` · 예약 <strong>${data.length}건</strong>`;
 
-  // ① 특별실별 이용률 (가로 막대, %)
+  // ① 특별실별 이용률
   const byRoom = rooms.map((r) => data.filter((x) => x.room_id === r.id).length);
   const util = byRoom.map((c) => (slots ? Math.round((c / slots) * 1000) / 10 : 0));
   drawChart('ch-rooms', {
@@ -623,10 +637,10 @@ async function renderStats() {
     },
   });
 
-  // ② 요일·교시별 혼잡도 (bubble: x = 월~금, y = 1~6교시, 원 크기 = 예약 건수)
+  // ② 요일·교시별 혼잡도
   const grid = {};
   data.forEach((r) => {
-    const w = parse(r.reserved_date).getDay();          // 1(월) ~ 5(금)
+    const w = parse(r.reserved_date).getDay();
     if (w < 1 || w > 5) return;
     const key = `${w}_${r.period}`;
     grid[key] = (grid[key] || 0) + 1;
@@ -653,7 +667,7 @@ async function renderStats() {
           grid: { display: false },
         },
         y: {
-          reverse: true, min: 0.5, max: 6.5,                  // 1교시가 위에 오도록 뒤집음
+          reverse: true, min: 0.5, max: 6.5,
           afterBuildTicks: (axis) => { axis.ticks = PERIODS.map((value) => ({ value })); },
           ticks: { callback: (v) => v + '교시' },
         },
@@ -661,7 +675,7 @@ async function renderStats() {
     },
   });
 
-  // ③ 학년별 이용 횟수 (세로 막대)
+  // ③ 학년별 이용 횟수
   const grades = [1, 2, 3, 4, 5, 6];
   const byGrade = grades.map((g) => data.filter((r) => r.grade === g).length);
   drawChart('ch-grade', {
@@ -678,12 +692,11 @@ async function renderStats() {
   });
 }
 
-// 탭 바꾸기
 function showTab(name) {
   document.querySelectorAll('nav.tabs button').forEach((b) => b.classList.toggle('active', b.dataset.tab === name));
   $('tab-booking').hidden = name !== 'booking';
   $('tab-stats').hidden = name !== 'stats';
-  if (name === 'stats') renderStats();     // 열 때마다 최신 데이터로 다시 그림
+  if (name === 'stats') renderStats();
 }
 
 // =====================================================================
@@ -698,7 +711,6 @@ async function init() {
   }
   db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-  // 기본 날짜: 오늘(주말이면 다음 월요일)
   let d = new Date();
   if (d.getDay() === 6) d = addDays(d, 2);
   if (d.getDay() === 0) d = addDays(d, 1);
@@ -725,7 +737,6 @@ async function init() {
   });
   $('list').addEventListener('click', onCancelClick);
 
-  // 통계 탭
   if (window.Chart) Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   document.querySelectorAll('nav.tabs button').forEach((b) => b.addEventListener('click', () => showTab(b.dataset.tab)));
   document.querySelectorAll('.seg button').forEach((b) => b.addEventListener('click', () => {
